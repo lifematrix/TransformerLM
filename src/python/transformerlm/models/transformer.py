@@ -56,12 +56,12 @@ class MultiHeadedAttention(nn.Module):
         for l in self.proj_linears:
             nn.init.xavier_normal_(l.weight)
 
-    def apply_attention(self, q: Tensor, k: Tensor ,v: Tensor, mask=None):
+    def apply_attention(self, q: Tensor, k: Tensor, v: Tensor, mask=None):
         d_k = q.size(-1)
 
-        scores = torch.matmul(q, k.transpose(-1,-2)) / math.sqrt(d_k)
+        scores = torch.matmul(q, k.transpose(-1, -2)) / math.sqrt(d_k)
         if mask is not None:
-            scores.masked_fill_(mask==0, -1e9)
+            scores.masked_fill_(mask == 0, -1e9)
 
         p_attn = torch.softmax(scores, dim=-1)
         p_attn = self.dropout(p_attn)
@@ -72,12 +72,13 @@ class MultiHeadedAttention(nn.Module):
     def forward(self, query, key, value, mask):
         B = query.size()[0]   # batch size
 
-        query, key, value = [torch.transpose(torch.reshape(lin(x), [B, -1, self.h, self.d_k]), 1,2)
+        query, key, value = [lin(x).view(B, -1, self.h, self.d_k).transpose(1, 2)
                              for lin, x in zip(self.proj_linears, (query, key, value))]
         attn_outputs, attn_weights = self.apply_attention(query, key, value, mask)
         attn_weights = torch.mean(attn_outputs, dim=-1)
-        attn_outputs = torch.reshape(torch.transpose(attn_outputs, 1,2), [B, -1, self.h*self.d_k])
+        attn_outputs = attn_outputs.transpose(1, 2).contiguous().view(B, -1, self.h*self.d_k)
         attn_outputs = self.proj_linears[-1](attn_outputs)
+        del query, key, value
 
         return attn_outputs, attn_weights
 

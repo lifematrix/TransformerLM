@@ -10,6 +10,7 @@ from .models import LMTransformerDecoderOnly
 
 import math
 import time
+import datetime
 
 import numpy as np
 import torch
@@ -143,14 +144,26 @@ def main(args, device):
 
         if (it + 1) % steps_per_eval == 0:
             val_loss = eval_fn(valid)
+            val_ppl = math.exp(val_loss)
             toc = time.perf_counter()
             print(
                 f"Iter {it + 1}: "
                 f"Val loss {val_loss:.3f}, "
-                f"Val ppl {math.exp(val_loss):.3f}, "
+                f"Val ppl {val_ppl:.3f}, "
                 f"Val took {(toc - tic):.3f}s, "
             )
             tic = time.perf_counter()
+            if args.save_checkpoint:
+                ckpt_file = "%s_%d.pth" % (args.save_checkpoint, it+1)
+                torch.save({
+                    "iter": it+1,
+                    "model_state_dict": transformer.state_dict(),
+                    "optimizer_state_dict": optim.state_dict(),
+                    "val_loss": val_loss,
+                    "val_ppl": val_ppl,
+                    "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
+                }, ckpt_file)
+                print(f"Save checkpoint to {ckpt_file} OK!")
 
     if args.eval_test:
         test_loss = eval_fn(test)
@@ -162,7 +175,8 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser("Train a decoder-only Transformer LM with MLX.")
-    parser.add_argument("--gpu", action="store_true", help="Use the Metal back-end.")
+    parser.add_argument("--device", type=str, default="cuda",
+                        help="The accelerated computing device: cpu, cuda (default), or mps (for Apple Silicon).")
     parser.add_argument("--seed", type=int, default=42, help="Seed for the RNGs.")
     parser.add_argument(
         "--context_size",
@@ -209,6 +223,14 @@ if __name__ == "__main__":
         action="store_true",
         help="Evaluate on the test set after training",
     )
+    parser.add_argument(
+        "--save_checkpoint",
+        type=str,
+        help="save checkpoints to the specified location",
+    )
+    
     args = parser.parse_args()
-    main(args, device="mps" if args.gpu else "cpu")
+    print(args)
+    device = "mps" if args.device == "mps" else "cuda" if args.device == "cuda" else "cpu"
+    main(args, device)
 
