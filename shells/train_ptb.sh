@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
 
-PYTHONPATH=src/python
-python -m transformerlm.train_ptb --batch_size 2 --gpu
+export PYTHONPATH=src/python:$PYTHONPATH
+
+python -m transformerlm.train_ptb --device cuda --num_iters 100000  \
+                    --steps_per_eval 20000 \
+                    --batch_size 6  \
+                    --eval_test     \
+                    --save_checkpoint checkpoint/lm_20240101
