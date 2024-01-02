@@ -108,6 +108,7 @@ def main(args, device):
             bx, by = inputs[s : s + batch_size], targets[s : s + batch_size]
             bx, by = map(lambda x: torch.from_numpy(x.astype(int)).to(device), [bx, by])
             logits = transformer(bx)
+
             losses = torch.nn.functional.cross_entropy(
                 logits.flatten(0, 1), by.flatten(), reduction="none"
             )
@@ -127,6 +128,7 @@ def main(args, device):
         loss = torch.nn.functional.cross_entropy(
             logits.flatten(0, 1), targets.flatten()
         )
+        print("bx.shape, by.shape, logits.shape: , loss.shape", inputs.size(), targets.size(), logits.size(), loss.size())
         loss.backward()
         optim.step()
         losses.append(loss.item())
