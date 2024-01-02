@@ -25,7 +25,9 @@ def to_samples(context_size, dataset):
         shape=(samples, window_size),
         strides=(dataset.itemsize, dataset.itemsize),
     )
-    return X[:, :-1], X[:, 1:]
+    X_data, X_targets = X[:, :-1], X[:, 1:]
+    print("X_data.shape, X_targets.shape: ", X_data.shape, X_targets.shape)
+    return X_data, X_targets
 
 
 def iterate_batches(batch_size, context_size, dataset):
@@ -128,6 +130,8 @@ def main(args, device):
         loss = torch.nn.functional.cross_entropy(
             logits.flatten(0, 1), targets.flatten()
         )
+        print("shape of logits.flatten(0, 1), targets.flatten(): ",
+              logits.flatten(0, 1).size(), targets.flatten().size())
         print("bx.shape, by.shape, logits.shape: , loss.shape", inputs.size(), targets.size(), logits.size(), loss.size())
         loss.backward()
         optim.step()
