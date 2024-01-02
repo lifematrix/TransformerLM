@@ -35,7 +35,7 @@ def iterate_batches(batch_size, context_size, dataset):
         if s == 0:
             # Reset permutation:
             perm = np.random.permutation(inputs.shape[0])
-        ids = perm[s : s + batch_size]
+        ids = perm[s:s + batch_size]
         yield inputs[ids], targets[ids]
         s += batch_size
         if s >= inputs.shape[0]:
