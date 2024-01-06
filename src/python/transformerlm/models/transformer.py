@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*
 
+import os
+import sys
 import logging
 import math
 import numpy as np
 import torch
 import torch.nn as nn
 from torch import Tensor
+from . import TSUtils
 
 
 # class Attention(torch.nn.Module):
@@ -45,11 +48,6 @@ class MultiHeadedAttention(nn.Module):
         ])
         self.dropout = nn.Dropout(p=dropout_rate)
 
-        # if bias:
-        #     self.proj_biases = [nn.Parameter(torch.empty(d_model)) for _ in range(4)]
-        # else:
-        #     self.proj_biases = None
-
         self._reset_parameters()
 
     def _reset_parameters(self):
@@ -67,6 +65,7 @@ class MultiHeadedAttention(nn.Module):
         p_attn = self.dropout(p_attn)
 
         output = torch.matmul(p_attn, v)
+
         return output, p_attn
 
     def forward(self, query, key, value, mask):
@@ -74,6 +73,7 @@ class MultiHeadedAttention(nn.Module):
 
         query, key, value = [lin(x).view(B, -1, self.h, self.d_k).transpose(1, 2)
                              for lin, x in zip(self.proj_linears, (query, key, value))]
+
         attn_outputs, attn_weights = self.apply_attention(query, key, value, mask)
         attn_weights = torch.mean(attn_outputs, dim=-1)
         attn_outputs = attn_outputs.transpose(1, 2).contiguous().view(B, -1, self.h*self.d_k)
@@ -105,44 +105,87 @@ class PositionwiseFeedForward(nn.Module):
 
 class TransformerEncoderLayer(nn.Module):
     def __init__(self, d_model, n_heads, d_ff, dropout_rate):
-        """
-        config contains: d_model, d_ff, h, dropout_rate, N, d_feats
-        """
         super(TransformerEncoderLayer, self).__init__()
         self.norm_1 = nn.LayerNorm(d_model)
         self.norm_2 = nn.LayerNorm(d_model)
         self.dropout_1 = nn.Dropout(dropout_rate)
         self.dropout_2 = nn.Dropout(dropout_rate)
 
-        self.mhatt = MultiHeadedAttention(d_model=d_model, n_heads=n_heads,
+        self.self_attn = MultiHeadedAttention(d_model=d_model, n_heads=n_heads,
                                           dropout_rate=dropout_rate)
 
         self.ff = PositionwiseFeedForward(d_model=d_model, d_ff=d_ff, dropout_rate=dropout_rate)
 
     def forward(self, x: Tensor, mask: Tensor=None):
         x = self.norm_1(x)
-        attn_output, _ = self.mhatt(x, x, x, mask)
+        attn_output, _ = self.self_attn(x, x, x, mask)
         attn_output = self.dropout_1(attn_output)
         x = x + attn_output
 
         x = self.norm_2(x)
-
         ff_output = self.ff(x)
         ff_output = self.dropout_2(ff_output)
         x = x + ff_output
 
         return x
 
-class PositionEmbedding(nn.Module):
-    def __init__(self, max_seq_len, d_model, dropout_rate=0.0):
-        super(PositionEmbedding, self).__init__()
-        self.pos_embedding = nn.Parameter(
-            torch.from_numpy(self.make_pos_embedding(max_seq_len, d_model)),
-            requires_grad=False)
+class TransformerDecoderLayer(nn.Module):
+    def __init__(self, d_model, n_heads, d_ff, dropout_rate):
+        super(TransformerDecoderLayer, self).__init__()
+        self.norm_1 = nn.LayerNorm(d_model)
+        self.norm_2 = nn.LayerNorm(d_model)
+        self.norm_3 = nn.LayerNorm(d_model)
+
+        self.dropout_1 = nn.Dropout(dropout_rate)
+        self.dropout_2 = nn.Dropout(dropout_rate)
+        self.dropout_3 = nn.Dropout(dropout_rate)
+
+        self.self_attn = MultiHeadedAttention(d_model=d_model, n_heads=n_heads,
+                                          dropout_rate=dropout_rate)
+        self.src_attn = MultiHeadedAttention(d_model=d_model, n_heads=n_heads,
+                                             dropout_rate=dropout_rate)
+
+        self.ff = PositionwiseFeedForward(d_model=d_model, d_ff=d_ff, dropout_rate=dropout_rate)
+
+    def forward(self, memory, src_mask, y, tgt_mask):
+        y = self.norm_1(y)
+        attn_output, _ = self.self_attn(y, y, y, tgt_mask)
+        attn_output = self.dropout_1(attn_output)
+        y = y + attn_output
+
+        y = self.norm_2(y)
+        attn_output, _ = self.src_attn(y, memory, memory, src_mask)
+        attn_output = self.dropout_2(attn_output)
+        y = y + attn_output
+
+        y = self.norm_3(y)
+        ff_output = self.ff(y)
+        ff_output = self.dropout_3(ff_output)
+        y = y + ff_output
+
+        return y
+
+
+class TSEmbedding(nn.Module):
+    def __init__(self, vocab_size, d_model):
+        super(TSEmbedding, self).__init__()
+        self.lut = nn.Embedding(vocab_size, d_model)
+        self.d_model = d_model
+
+    def forward(self, x):
+        x = self.lut(x) / math.sqrt(self.d_model)
+        return x
+
+class PositionalEncoding(nn.Module):
+    def __init__(self, d_model, max_seq_len=10000, dropout_rate=0.0):
+        super(PositionalEncoding, self).__init__()
+        self.register_buffer("encoding",
+                             torch.from_numpy(self.make_pos_encodng(max_seq_len, d_model))
+                             .to(torch.get_default_dtype()))
         self.dropout = nn.Dropout(dropout_rate)
 
     @classmethod
-    def make_pos_embedding(cls, seq_len, d_model):
+    def make_pos_encodng(cls, seq_len, d_model):
         d_half = d_model / 2
 
         f = np.power(10000, -2 * np.arange(d_half) / d_model)[np.newaxis, :]
@@ -151,13 +194,13 @@ class PositionEmbedding(nn.Module):
 
         pe_even = np.sin(angle)
         pe_odd = np.cos(angle)
-        embedding = np.dstack((pe_even, pe_odd)).reshape(seq_len, d_model)
+        encoding = np.dstack((pe_even, pe_odd)).reshape(seq_len, d_model)
 
-        return embedding
+        return encoding
 
-    def forward(self, x, training=None):
-        seq_len = x.size()[1]
-        x = x + self.pos_embedding[None, :seq_len, ...].requires_grad_(False)
+    def forward(self, x):
+        seq_len = x.size(1)
+        x = x + self.encoding[None, :seq_len, ...].requires_grad_(False)
         x = self.dropout(x)
 
         return x
@@ -182,6 +225,38 @@ class TransformerEncoder(nn.Module):
 
         return x
 
+class Generator(nn.Module):
+    def __init__(self, d_model, vocab_size):
+        super(Generator, self).__init__()
+
+        self.proj = nn.Linear(d_model, vocab_size)
+
+    def forward(self, x):
+        x = self.proj(x)
+        x = nn.functional.log_softmax(x, dim=-1)
+        return x
+
+
+class TransformerDecoder(nn.Module):
+    def __init__(self, n_layers, d_model, n_heads, d_ff, dropout_rate=0.0):
+        super(TransformerDecoder, self).__init__()
+
+        self.n_layers = n_layers
+        self.decoder_layers = nn.ModuleList([
+            TransformerDecoderLayer(
+                d_model=d_model, n_heads=n_heads, d_ff=d_ff, dropout_rate=dropout_rate)
+            for _ in range(self.n_layers)
+        ])
+        self.norm = nn.LayerNorm(d_model)
+
+    def forward(self, memory, src_mask, y, tgt_mask):
+        for layer in self.decoder_layers:
+            y = layer(memory, src_mask, y, tgt_mask)
+
+        y = self.norm(y)
+
+        return y
+
 
 class LMTransformerDecoderOnly(nn.Module):
     def __init__(self, vocab_size,
@@ -192,27 +267,102 @@ class LMTransformerDecoderOnly(nn.Module):
         self.d_model = d_model
         self.d_ff = 4 * d_model
 
-        self.embedding = nn.Embedding(vocab_size, d_model)
-        self.pos_embedding = PositionEmbedding(max_seq_len=max_seq_len, d_model=d_model)
+        self.embedding = nn.Sequential(
+            TSEmbedding(vocab_size, d_model),
+            PositionalEncoding(d_model=d_model, max_seq_len=max_seq_len)
+        )
         self.encoder = TransformerEncoder(n_layers=n_encoder_layers,
                                           n_heads=n_mttn_heads, d_model=d_model,
                                           d_ff=self.d_ff, dropout_rate=dropout_rate)
 
         self.final_proj = nn.Linear(d_model, vocab_size)
 
-    def make_causal_mask(self, x):
-        seq_len =  x.size()[1]
-        mask = torch.tril(torch.ones(seq_len, seq_len, dtype=x.dtype), diagonal=0).to(x.device)
-        return mask
+    # def make_causal_mask(self, x):
+    #     seq_len = x.size(1)
+    #     mask = torch.tril(torch.ones(seq_len, seq_len, dtype=x.dtype), diagonal=0).to(x.device)
+    #     return mask
 
     def forward(self, x):
-        x = self.embedding(x) * math.sqrt(self.d_model)
-        x = self.pos_embedding(x)
-        mask = self.make_causal_mask(x)
+        x = self.embedding(x)
+        mask = TSUtils.make_causal_mask(x)
         x = self.encoder(x, mask=mask)
         x = self.final_proj(x)
 
         return x
+
+class LMTransformerBilateralcoder(nn.Module):
+    def __init__(self, src_vocab_size, tgt_vocab_size=None,
+                 d_model=512, d_ff=None, max_seq_len=5000,
+                 n_encoder_layers=6, n_decoder_layers=None,
+                 n_mttn_heads=8, dropout_rate=0.1):
+        super(LMTransformerBilateralcoder, self).__init__()
+
+        self.src_vocab_size = src_vocab_size
+        if tgt_vocab_size is None:
+            tgt_vocab_size = src_vocab_size
+        self.tgt_vocab_size = tgt_vocab_size
+
+        self.d_model = d_model
+        if d_ff is None:
+            d_ff = 4 * d_model
+        self.d_ff = d_ff
+
+        self.max_seq_len = max_seq_len
+
+        self.n_encoder_layers = n_encoder_layers
+        if n_decoder_layers is None:
+            n_decoder_layers = n_encoder_layers
+        self.n_decoder_layers = n_decoder_layers
+
+        self.n_mttn_heads = n_mttn_heads
+
+        self.dropout_rate = dropout_rate
+
+        self.src_embedding = nn.Sequential(
+            TSEmbedding(vocab_size=self.src_vocab_size, d_model=self.d_model),
+            PositionalEncoding(d_model=self.d_model, max_seq_len=self.max_seq_len)
+        )
+
+        self.encoder = TransformerEncoder(n_layers=self.n_encoder_layers,
+                                          n_heads=self.n_mttn_heads, d_model=self.d_model,
+                                          d_ff=self.d_ff, dropout_rate=self.dropout_rate)
+
+        self.tgt_embedding = nn.Sequential(
+            TSEmbedding(vocab_size=self.tgt_vocab_size, d_model=self.d_model),
+            PositionalEncoding(d_model=self.d_model, max_seq_len=self.max_seq_len)
+        )
+        self.decoder = TransformerDecoder(n_layers=self.n_decoder_layers,
+                                          n_heads=self.n_mttn_heads, d_model=self.d_model,
+                                          d_ff=self.d_ff, dropout_rate=self.dropout_rate)
+
+        self.generator = Generator(d_model, tgt_vocab_size)
+
+        self._reset_parameters()
+
+    def _reset_parameters(self):
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
+
+
+    def encode(self, src, src_mask):
+        x = self.src_embedding(src)
+        memory = self.encoder(x, mask=src_mask)
+
+        return memory
+
+    def decode(self, memory, src_mask, tgt, tgt_mask):
+        y = self.tgt_embedding(tgt)
+        y = self.decoder(memory, src_mask, y, tgt_mask)
+
+        return y
+
+    def forward(self, src, tgt, src_mask, tgt_mask):
+        memory = self.encode(src, src_mask)
+        y = self.decode(memory, src_mask, tgt, tgt_mask)
+
+        return y
+
 
 
 
