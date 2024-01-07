@@ -233,7 +233,8 @@ class Generator(nn.Module):
 
     def forward(self, x):
         x = self.proj(x)
-        x = nn.functional.log_softmax(x, dim=-1)
+        #x = nn.functional.log_softmax(x, dim=-1)
+        #x = nn.functional.softmax(x, dim=-1)
         return x
 
 
@@ -320,7 +321,7 @@ class LMTransformerBilateralcoder(nn.Module):
 
         self.src_embedding = nn.Sequential(
             TSEmbedding(vocab_size=self.src_vocab_size, d_model=self.d_model),
-            PositionalEncoding(d_model=self.d_model, max_seq_len=self.max_seq_len)
+            #PositionalEncoding(d_model=self.d_model, max_seq_len=self.max_seq_len)
         )
 
         self.encoder = TransformerEncoder(n_layers=self.n_encoder_layers,
@@ -329,7 +330,7 @@ class LMTransformerBilateralcoder(nn.Module):
 
         self.tgt_embedding = nn.Sequential(
             TSEmbedding(vocab_size=self.tgt_vocab_size, d_model=self.d_model),
-            PositionalEncoding(d_model=self.d_model, max_seq_len=self.max_seq_len)
+            #PositionalEncoding(d_model=self.d_model, max_seq_len=self.max_seq_len)
         )
         self.decoder = TransformerDecoder(n_layers=self.n_decoder_layers,
                                           n_heads=self.n_mttn_heads, d_model=self.d_model,

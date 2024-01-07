@@ -7,15 +7,16 @@ import torch
 import torch.nn as nn
 from .models import TSUtils, LMTransformerBilateralcoder
 from tqdm import tqdm
+import torchsummary
 
 class Batch:
     """Object for holding a batch of data with mask during training."""
-    def __init__(self, src, tgt=None, pad=2, sos=0):    # 2 = <blank>
+    def __init__(self, src, tgt=None, pad=-1, sos=0):    # 2 = <blank>
         self.src = src
         self.src_mask = (src!=pad).unsqueeze(-2).unsqueeze(-3)
 
         if tgt is not None:
-            tgt = torch.concatenate([torch.zeros_like(tgt[:, :1]).fill_(sos), tgt], dim=1)
+            #tgt = torch.concatenate([torch.zeros_like(tgt[:, :1]).fill_(sos), tgt], dim=1)
             self.tgt = tgt[:, :-1]
             self.tgt_y = tgt[:, 1:]
             self.tgt_mask = self.make_std_mask(self.tgt, pad)
@@ -24,7 +25,7 @@ class Batch:
     @classmethod
     def make_std_mask(cls, tgt, pad):
         """Create a mask to hide padding and future words"""
-        tgt_mask = (tgt!= pad).unsqueeze(-2)
+        tgt_mask = (tgt != pad).unsqueeze(-2)
         tgt_mask = tgt_mask & TSUtils.make_causal_mask(tgt)
         tgt_mask = tgt_mask.unsqueeze(-3)
 
@@ -52,7 +53,7 @@ def run_epoch(epoch, data_iter, model, loss_compute,
     total_loss = 0
     n_accum = 0
 
-    for i, batch in enumerate(data_iter):
+    for i, batch in tqdm(enumerate(data_iter)):
         # print("batch.src: ", batch.src)
         # print("batch.tgt: ", batch.tgt)
         # print("batch.tgt_y: ", batch.tgt_y)
@@ -60,16 +61,24 @@ def run_epoch(epoch, data_iter, model, loss_compute,
         loss, loss_node = loss_compute(out, batch.tgt_y.to(device), batch.n_tokens)
 
         if mode == "train" or mode == "train+log":
-            loss_node.backward()
+            optimizer.zero_grad()
             train_state.step += 1
             train_state.samples += batch.src.shape[0]
             train_state.tokens += batch.n_tokens
 
+            loss_node.backward()
             optimizer.step()
-            optimizer.zero_grad(set_to_none=True)
             n_accum += 1
             train_state.accum_step += 1
-            scheduler.step()
+        elif i==0:    ## eval mode
+            logits = loss_compute.generator(out)
+            print("eval, logits: ", logits.shape)
+            pred = torch.argmax(logits, dim=-1)
+            print("src:    ", batch.src)
+            print("target: ", batch.tgt_y)
+            print("pred:   ", pred)
+
+            #scheduler.step()
 
         total_loss += loss
         total_tokens += batch.n_tokens
@@ -77,10 +86,10 @@ def run_epoch(epoch, data_iter, model, loss_compute,
         if (i+1) % 10 == 0 and (mode == "train" or mode == "train+log"):
             lr = optimizer.param_groups[0]["lr"]
             elapsed = time.time() - start
-            print(
-               "Epoch[%d] step: %6d | Accumulation Step: %3d | Loss: %8.4f | Tokens / Sec: %7.1f | Learning rate: %6.3e"
-                % (epoch, i+1, train_state.accum_step, total_loss/total_tokens, total_tokens/elapsed, lr)
-            )
+            # print(
+            #    "Epoch[%d] step: %6d | Accumulation Step: %3d | Loss: %.6f | Tokens / Sec: %7.1f | Learning rate: %.4e"
+            #     % (epoch, i+1, train_state.accum_step, loss/batch.n_tokens, total_tokens/elapsed, lr)
+            # )
             start = time.time()
 
         del loss
@@ -264,7 +273,7 @@ def illustrate_label_smoothing_penalization():
     )
 
 
-def data_gen(V, batch_size, n_batches, seq_len=10):
+def data_gen(V, batch_size, n_batches, seq_len=7):
     """Generate random data for a src-tgt copy task."""
 
     for i in range(n_batches):
@@ -272,7 +281,7 @@ def data_gen(V, batch_size, n_batches, seq_len=10):
         data[:, 0] = 1    # 1 is <start of sequence>
         src = data.requires_grad_(False).clone().detach()
         tgt = data.requires_grad_(False).clone().detach()
-        yield Batch(src, tgt, 0)   # 0 is pad
+        yield Batch(src, tgt)   # 0 is pad
 
 
 class SimpleLossCompute:
@@ -284,6 +293,7 @@ class SimpleLossCompute:
 
     def __call__(self, x, target, norm):
         pred = self.generator(x)
+        #print("Simple loss: pred, target: ", pred.shape, target.shape, norm)
         sloss = (
             self.criterion(
                 pred.contiguous().view(-1, pred.size(-1)),
@@ -296,15 +306,16 @@ class SimpleLossCompute:
 def greedy_decode(model, src, src_mask, max_len, start_symbol):
 
     memory = model.encode(src, src_mask)
-    ys = torch.zeros(1,1).fill_(start_symbol).to(src.dtype)
+    ys = torch.zeros(1,1).fill_(start_symbol).to(src.dtype).to(src.device)
 
     for i in range(max_len-1):
-        out = model.decode(memory, src_mask, ys, TSUtils.make_causal_mask(ys))
-        prob = model.generator(out[:, -1])
-        _, next_token = torch.max(prob, dim=1)
+        ys_mask = Batch.make_std_mask(ys, pad=-1)
+        out = model.decode(memory, src_mask, ys, ys_mask)
+        logits = model.generator(out[:, -1])
+        _, next_token = torch.max(logits, dim=1)
         next_token = next_token.data[0]
         ys = torch.cat(
-            [ys, torch.zeros(1,1).to(src.dtype).fill_(next_token)],
+            [ys, torch.zeros(1,1).to(src.dtype).to(src.device).fill_(next_token)],
             dim=1
         )
 
@@ -326,33 +337,53 @@ class DummyScheduler:
     def step(self):
         pass
 
+from prettytable import PrettyTable
+def count_parameters(model):
+    table = PrettyTable(["Modules", "size", "Parameters"])
+    total_params = 0
+    for name, parameter in model.named_parameters():
+        if not parameter.requires_grad:
+            continue
+        params = parameter.numel()
+        table.add_row([name, list(parameter.shape), params])
+        total_params += params
+    print(table)
+    print(f"Total Trainable Params: {total_params}, or  {total_params/(1024*1024):.3f}M")
+    return total_params
+
 def illustrate_simple_model_train():
-    device = "cpu"
+    device = "cuda"
     V = 11
-    criterion = LabelSmoothing(size=V, padding_idx=0, smoothing=0.0)
+    #criterion = LabelSmoothing(size=V, padding_idx=2, smoothing=0.0)
+    criterion = nn.CrossEntropyLoss()
     model = LMTransformerBilateralcoder(src_vocab_size=V,
                                         tgt_vocab_size=V,
-                                        n_encoder_layers=2).to(device)
+                                        n_encoder_layers=4,
+                                        dropout_rate=0.1).to(device)
+    count_parameters(model)
+    model._reset_parameters()
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.5, betas=(0.9, 0.92), eps=1e-9)
-    lr_scheduler = torch.optim.lr_scheduler.LambdaLR(
-        optimizer=optimizer,
-        lr_lambda=lambda step: lr_fn(step, d_model=model.d_model, factor=1.0, warmup=400)
-    )
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.92), eps=1e-9)
+    # lr_scheduler = torch.optim.lr_scheduler.LambdaLR(
+    #     optimizer=optimizer,
+    #     lr_lambda=lambda step: lr_fn(step, d_model=model.d_model, factor=1.0, warmup=100)
+    # )
 
-    print("lr_fn: ", [lr_fn(step, d_model=model.d_model, factor=1.0, warmup=400) for step in [200, 400, 800]])
     n_batches = 80
-    batch_size = 2
-    train_state = TrainState()
-    for epoch in range(40):
+    batch_size = 16
+    seq_len = 10
+    sos = 0
+    #train_state = TrainState()
+    train_state = None
+    for epoch in range(100):
         model.train()
         run_epoch(
             epoch,
-            data_gen(V, batch_size, n_batches),
+            data_gen(V, batch_size, n_batches, seq_len=seq_len),
             model,
             SimpleLossCompute(model.generator, criterion),
             optimizer,
-            lr_scheduler,
+            DummyScheduler(),
             device=device,
             mode="train",
             train_state=train_state,
@@ -360,9 +391,9 @@ def illustrate_simple_model_train():
         model.eval()
         r = run_epoch(
             epoch,
-            data_gen(V, batch_size, 5),
+            data_gen(V, batch_size, n_batches//3, seq_len=seq_len),
             model,
-            SimpleLossCompute(model.generator, criterion),
+            SimpleLossCompute(model.generator, criterion, ),
             #DummyOptimizer(),
             optimizer,
             DummyScheduler(),
@@ -370,12 +401,25 @@ def illustrate_simple_model_train():
             mode="eval",
             train_state=train_state
         )
+        print(f"Epoch [{epoch}] evaluation loss: {r[0]:.8f}, tokens: {r[1].tokens}")
 
     model.eval()
+
     src = torch.LongTensor(np.arange(10)[np.newaxis, ...])
     max_len = src.shape[1]
-    src_mask = torch.ones(1, 1, max_len)
-    print(greedy_decode(model, src, src_mask, max_len=max_len, start_symbol=0))
+    src_mask = torch.ones(1, 1, 1, max_len)
+    print("src : ", src)
+    print("pred: ", greedy_decode(model, src.to(device), src_mask.to(device), max_len=max_len, start_symbol=0))
+
+    for i in range(10):
+        print(f"Rand Test #{i}")
+        #src = torch.LongTensor(np.arange(10)[np.newaxis, ...])
+        src = torch.cat((torch.ones(1,1)*sos, torch.randint(1, 11, size=(1, 9))), dim=1).to(torch.long)
+        max_len = src.shape[1]
+        src_mask = torch.ones(1, 1, 1, max_len)
+        print("src : ", src)
+        print("pred: ", greedy_decode(model, src.to(device), src_mask.to(device), max_len=max_len, start_symbol=sos))
+
 
 
 if __name__ == "__main__":
