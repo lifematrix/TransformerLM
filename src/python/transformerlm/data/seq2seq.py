@@ -3,6 +3,7 @@
 Define data provider for seq2seq model.
 """
 
+from typing import List
 from collections import OrderedDict
 from torchtext.utils import download_from_url, extract_archive
 from torchtext.data.utils import get_tokenizer
@@ -94,10 +95,23 @@ class Seq2SeqDataMulti30k:
 
         return vocabs
 
+    def preprocess(self, lan, text: str):
+        def add_head_tail(token_ids: List[int]):
+            return [self.BOS_IDX] + token_ids + [self.EOS_IDX]
+
+        tokens = self.tokeninzers[lan](text)
+        token_ids = self.vocabs[lan][tokens]
+        token_ids = add_head_tail(token_ids)
+
+        return token_ids
 
 if __name__ == "__main__":
     d = Seq2SeqDataMulti30k(src_lan="de", tgt_lan="en")
+    print(d.vocabs['en']["<eos>"])
+    print(d.vocabs['en'][100])
     print({lan: len(d.vocabs[lan]) for lan in d.lans})
+    print(d.preprocess("de", "Drei Leute sitzen an einem Picknicktisch vor einem Gebäude, das wie der Union Jack bemalt ist."))
+    print(d.preprocess("en", "Three people sit at a picnic table outside of a building painted like a union jack."))
 
 
 

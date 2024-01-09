@@ -22,12 +22,12 @@ class Vocabulary:
         elif isinstance(item, int):
             return self.voc_list[item]
         elif isinstance(item, str):
-            return self.voc_dict[item]
+            return self.idx_map[item]
         else:
             raise ValueError(f"The type of arg 'item' (value: {item}) is wrong!")
 
     def __contains__(self, item: str) -> bool:
-        return self.voc_dict.__contains__(item)
+        return self.idx_map.__contains__(item)
 
     @property
     def size(self):
