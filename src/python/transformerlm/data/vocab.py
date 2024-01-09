@@ -2,13 +2,14 @@
 """
 Implement a custom vocabulary class
 """
-from typing import List
+from typing import List, Iterable, Optional
+from collections import Counter, OrderedDict
 
 
 class Vocabulary:
     """A custom class"""
     def __init__(self):
-        self.voc_list = None
+        self.voc_list = []
         self.idx_map = dict()
         self._default_index = None
 
@@ -34,17 +35,55 @@ class Vocabulary:
 
     @property
     def default_index(self):
-        return self.set_default_index
+        return self._default_index
 
     @default_index.setter
     def default_index(self, idx: int):
-        self.default_index = idx
+        self._default_index = idx
 
     @property
     def default_token(self):
-        return self.voc_list[self._default_index]
+        return self.voc_list[self._default_index] if self._default_index is not None else None
 
-    def build_map(self):
+    def build_map(self, start: int = 0):
+        if self.idx_map is None:
+            self.idx_map = dict()
+        self.idx_map.update({token: (i+start) for i, token in enumerate(self.voc_list[start:])})
 
-    def insert(self, token: str, index: int):
-        self.voc_list.insert(index, str)
+    def insert_token(self, token: str or List[str], index: int):
+        if index < 0:
+            index += len(self.voc_list)
+        self.voc_list[index:index] = token
+        self.build_map(index)
+    
+    def append_token(self, token: str or List[str]):
+        index = len(self.voc_list)
+        self.insert_token(token, index)
+
+    @classmethod
+    def create_from(cls, iterator: Iterable, min_freq: int = 1,
+                    specials: Optional[str or List[str]] = None, special_first: bool = True,
+                    max_tokens: Optional[int] = None):
+        def select_tokens(iterator, min_freq):
+            counter = Counter()
+            for tokens in iterator:
+                counter.update(tokens)
+
+            tokens_sorted = sorted(counter.items(), key=lambda x: (-x[1], x[0]))
+            if max_tokens is not None and max_tokens > 1:
+                tokens_sorted = tokens_sorted[:max_tokens]
+
+            return [x[0] for x in tokens_sorted]
+
+        new_voc = Vocabulary()
+        new_voc.voc_list = select_tokens(iterator, min_freq)
+
+        if specials is not None:
+            pos = 0 if special_first else len(new_voc.voc_list)
+            new_voc.voc_list[pos:pos] = specials
+
+        new_voc.build_map()
+
+        return new_voc
+
+
