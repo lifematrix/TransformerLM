@@ -233,8 +233,6 @@ class Generator(nn.Module):
 
     def forward(self, x):
         x = self.proj(x)
-        #x = nn.functional.log_softmax(x, dim=-1)
-        #x = nn.functional.softmax(x, dim=-1)
         return x
 
 
@@ -358,9 +356,11 @@ class LMTransformerBilateralcoder(nn.Module):
 
         return y
 
-    def forward(self, src, tgt, src_mask, tgt_mask):
+    def forward(self, src, tgt, src_mask, tgt_mask, final_proj=True):
         memory = self.encode(src, src_mask)
         y = self.decode(memory, src_mask, tgt, tgt_mask)
+        if final_proj:
+            y = self.generator(y)
 
         return y
 

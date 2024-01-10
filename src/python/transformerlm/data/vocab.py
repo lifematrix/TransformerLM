@@ -22,7 +22,7 @@ class Vocabulary:
         elif isinstance(item, int):
             return self.voc_list[item]
         elif isinstance(item, str):
-            return self.idx_map[item]
+            return self.idx_map.get(item, self.default_index)
         else:
             raise ValueError(f"The type of arg 'item' (value: {item}) is wrong!")
 
