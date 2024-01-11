@@ -38,3 +38,7 @@ class TSUtils:
         print(table)
         print(f"Total Trainable Params: {total_params}, or  {total_params/(1024*1024):.3f}M")
         return total_params
+
+    @classmethod
+    def mean(cls, data):
+        return sum(data)/len(data)

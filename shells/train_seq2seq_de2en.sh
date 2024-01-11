@@ -2,4 +2,4 @@
 
 export PYTHONPATH=src/python:$PYTHONPATH
 
-python -m transformerlm.data.train_multi30k_de2en
+python -m transformerlm.train_multi30k_de2en

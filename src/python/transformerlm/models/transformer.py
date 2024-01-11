@@ -182,7 +182,7 @@ class PositionalEncoding(nn.Module):
         self.register_buffer("encoding",
                              torch.from_numpy(self.make_pos_encodng(max_seq_len, d_model))
                              .to(torch.get_default_dtype()))
-        self.dropout = nn.Dropout(dropout_rate)
+        self.dropout = nn.Dropout(p=dropout_rate)
 
     @classmethod
     def make_pos_encodng(cls, seq_len, d_model):
@@ -200,7 +200,7 @@ class PositionalEncoding(nn.Module):
 
     def forward(self, x):
         seq_len = x.size(1)
-        x = x + self.encoding[None, :seq_len, ...].requires_grad_(False)
+        x = x + self.encoding[None, :seq_len]
         x = self.dropout(x)
 
         return x
@@ -226,13 +226,14 @@ class TransformerEncoder(nn.Module):
         return x
 
 class Generator(nn.Module):
-    def __init__(self, d_model, vocab_size):
+    def __init__(self, d_model, vocab_size, dropout_rate=0.0):
         super(Generator, self).__init__()
 
         self.proj = nn.Linear(d_model, vocab_size)
+        self.dropout = nn.Dropout(p=dropout_rate)
 
     def forward(self, x):
-        x = self.proj(x)
+        x = self.dropout(self.proj(x))
         return x
 
 
@@ -319,7 +320,7 @@ class LMTransformerBilateralcoder(nn.Module):
 
         self.src_embedding = nn.Sequential(
             TSEmbedding(vocab_size=self.src_vocab_size, d_model=self.d_model),
-            #PositionalEncoding(d_model=self.d_model, max_seq_len=self.max_seq_len)
+            #PositionalEncoding(d_model=self.d_model, max_seq_len=self.max_seq_len, dropout_rate=dropout_rate)
         )
 
         self.encoder = TransformerEncoder(n_layers=self.n_encoder_layers,
@@ -328,7 +329,7 @@ class LMTransformerBilateralcoder(nn.Module):
 
         self.tgt_embedding = nn.Sequential(
             TSEmbedding(vocab_size=self.tgt_vocab_size, d_model=self.d_model),
-            #PositionalEncoding(d_model=self.d_model, max_seq_len=self.max_seq_len)
+            #PositionalEncoding(d_model=self.d_model, max_seq_len=self.max_seq_len, dropout_rate=dropout_rate)
         )
         self.decoder = TransformerDecoder(n_layers=self.n_decoder_layers,
                                           n_heads=self.n_mttn_heads, d_model=self.d_model,
@@ -342,7 +343,6 @@ class LMTransformerBilateralcoder(nn.Module):
         for p in self.parameters():
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
-
 
     def encode(self, src, src_mask):
         x = self.src_embedding(src)

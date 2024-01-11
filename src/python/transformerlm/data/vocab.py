@@ -4,6 +4,7 @@ Implement a custom vocabulary class
 """
 from typing import List, Iterable, Optional
 from collections import Counter, OrderedDict
+import numpy as np
 
 
 class Vocabulary:
@@ -16,10 +17,10 @@ class Vocabulary:
     def __len__(self):
         return len(self.voc_list)
 
-    def __getitem__(self, item: int or str or List[int] or List[str]):
-        if isinstance(item, list):
+    def __getitem__(self, item: int or str or List[int] or List[str] or np.ndarray):
+        if isinstance(item, list) or isinstance(item, np.ndarray):
             return [self.__getitem__(x) for x in item]
-        elif isinstance(item, int):
+        elif isinstance(item, int) or isinstance(item, np.int64):
             return self.voc_list[item]
         elif isinstance(item, str):
             return self.idx_map.get(item, self.default_index)

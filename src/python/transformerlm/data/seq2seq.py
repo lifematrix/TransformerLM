@@ -103,7 +103,7 @@ class Seq2SeqDataMulti30k:
     def read_data(self, fname_pairs):
         def read_pair(fname_pair):
             with open(fname_pair[0], encoding="utf8") as f0, open(fname_pair[1], encoding="utf8") as f1:
-                lines = [(line0, line1) for line0, line1 in zip(f0, f1)]
+                lines = [(line0.rstrip("\n"), line1.rstrip("\n")) for line0, line1 in zip(f0, f1)]
             print(f"read {fname_pairs} The number of lines: {len(lines)}")
 
             return {
@@ -120,7 +120,8 @@ class Seq2SeqDataMulti30k:
 
     def build_vocabs(self):
         data_to_voc = {
-            lan: self.data['train'][lan] + self.data['val'][lan] for lan in self.lans
+            #lan: self.data['train'][lan] + self.data['val'][lan] for lan in self.lans
+            lan: self.data['train'][lan] for lan in self.lans
         }
 
         special_tokens = [self.UNK_TKN, self.PAD_TKN, self.BOS_TKN, self.EOS_TKN]
