@@ -2,7 +2,7 @@
 
 import os
 import sys
-import logging
+from typing import Optional
 import math
 import numpy as np
 import torch
@@ -54,12 +54,15 @@ class MultiHeadedAttention(nn.Module):
         for l in self.proj_linears:
             nn.init.xavier_normal_(l.weight)
 
-    def apply_attention(self, q: Tensor, k: Tensor, v: Tensor, mask=None):
+    def apply_attention(self, q: Tensor, k: Tensor, v: Tensor, attn_mask=None, key_padding_mask=None):
         d_k = q.size(-1)
 
         scores = torch.matmul(q, k.transpose(-1, -2)) / math.sqrt(d_k)
-        if mask is not None:
-            scores.masked_fill_(mask == 0, -1e9)
+        if attn_mask is not None:
+            scores.masked_fill_(attn_mask == 0, -1e9)
+        if key_padding_mask is not None:
+            key_padding_mask = key_padding_mask[:, None, None, :] # convert  into [B, 1, 1(src_len), tgt_len]
+            scores.masked_fill_(key_padding_mask == 0, -1e9)
 
         p_attn = torch.softmax(scores, dim=-1)
         p_attn = self.dropout(p_attn)
@@ -68,13 +71,13 @@ class MultiHeadedAttention(nn.Module):
 
         return output, p_attn
 
-    def forward(self, query, key, value, mask):
+    def forward(self, query, key, value,  attn_mask=None, key_padding_mask=None):
         B = query.size()[0]   # batch size
 
         query, key, value = [lin(x).view(B, -1, self.h, self.d_k).transpose(1, 2)
                              for lin, x in zip(self.proj_linears, (query, key, value))]
 
-        attn_outputs, attn_weights = self.apply_attention(query, key, value, mask)
+        attn_outputs, attn_weights = self.apply_attention(query, key, value, attn_mask, key_padding_mask)
         attn_weights = torch.mean(attn_outputs, dim=-1)
         attn_outputs = attn_outputs.transpose(1, 2).contiguous().view(B, -1, self.h*self.d_k)
         attn_outputs = self.proj_linears[-1](attn_outputs)
@@ -116,9 +119,11 @@ class TransformerEncoderLayer(nn.Module):
 
         self.ff = PositionwiseFeedForward(d_model=d_model, d_ff=d_ff, dropout_rate=dropout_rate)
 
-    def forward(self, x: Tensor, mask: Tensor=None):
-        x = self.norm_1(x)
-        attn_output, _ = self.self_attn(x, x, x, mask)
+    def forward(self, src: Tensor,
+                src_mask: Optional[Tensor] = None,
+                src_key_padding_mask: Optional[Tensor] = None):
+        x = self.norm_1(src)
+        attn_output, _ = self.self_attn(x, x, x, src_mask, src_key_padding_mask)
         attn_output = self.dropout_1(attn_output)
         x = x + attn_output
 
@@ -147,14 +152,21 @@ class TransformerDecoderLayer(nn.Module):
 
         self.ff = PositionwiseFeedForward(d_model=d_model, d_ff=d_ff, dropout_rate=dropout_rate)
 
-    def forward(self, memory, src_mask, y, tgt_mask):
-        y = self.norm_1(y)
-        attn_output, _ = self.self_attn(y, y, y, tgt_mask)
+    def forward(self,
+                memory: Tensor,
+                tgt: Tensor,
+                memory_mask: Optional[Tensor] = None,
+                tgt_mask: Optional[Tensor] = None,
+                memory_key_padding_mask: Optional[Tensor] = None,
+                tgt_key_padding_mask: Optional[Tensor] = None):
+
+        y = self.norm_1(tgt)
+        attn_output, _ = self.self_attn(y, y, y, tgt_mask, tgt_key_padding_mask)
         attn_output = self.dropout_1(attn_output)
         y = y + attn_output
 
         y = self.norm_2(y)
-        attn_output, _ = self.src_attn(y, memory, memory, src_mask)
+        attn_output, _ = self.src_attn(y, memory, memory, memory_mask, memory_key_padding_mask)
         attn_output = self.dropout_2(attn_output)
         y = y + attn_output
 
@@ -173,7 +185,7 @@ class TSEmbedding(nn.Module):
         self.d_model = d_model
 
     def forward(self, x):
-        x = self.lut(x) / math.sqrt(self.d_model)
+        x = self.lut(x) * math.sqrt(self.d_model)
         return x
 
 class PositionalEncoding(nn.Module):
@@ -217,13 +229,15 @@ class TransformerEncoder(nn.Module):
         ])
         self.norm = nn.LayerNorm(d_model)
 
-    def forward(self, x: Tensor, mask: Tensor=None):
+    def forward(self, src: Tensor,
+                src_mask: Optional[Tensor] = None,
+                src_key_padding_mask: Optional[Tensor] = None):
         for layer in self.encoder_layers:
-            x = layer(x, mask)
+            src = layer(src, src_mask, src_key_padding_mask)
 
-        x = self.norm(x)
+        src = self.norm(src)
 
-        return x
+        return src
 
 class Generator(nn.Module):
     def __init__(self, d_model, vocab_size, dropout_rate=0.0):
@@ -249,13 +263,20 @@ class TransformerDecoder(nn.Module):
         ])
         self.norm = nn.LayerNorm(d_model)
 
-    def forward(self, memory, src_mask, y, tgt_mask):
+    def forward(self,
+                memory: Tensor,
+                tgt: Tensor,
+                memory_mask: Optional[Tensor] = None,
+                tgt_mask: Optional[Tensor] = None,
+                memory_key_padding_mask: Optional[Tensor] = None,
+                tgt_key_padding_mask: Optional[Tensor] = None,
+                ):
         for layer in self.decoder_layers:
-            y = layer(memory, src_mask, y, tgt_mask)
+            tgt = layer(memory, tgt, memory_mask, tgt_mask, memory_key_padding_mask, tgt_key_padding_mask)
 
-        y = self.norm(y)
+        tgt = self.norm(tgt)
 
-        return y
+        return tgt
 
 
 class LMTransformerDecoderOnly(nn.Module):
@@ -290,12 +311,12 @@ class LMTransformerDecoderOnly(nn.Module):
 
         return x
 
-class LMTransformerBilateralcoder(nn.Module):
+class LMTransformerSeq2Seq(nn.Module):
     def __init__(self, src_vocab_size, tgt_vocab_size=None,
                  d_model=512, d_ff=None, max_seq_len=5000,
                  n_encoder_layers=6, n_decoder_layers=None,
                  n_mttn_heads=8, dropout_rate=0.1):
-        super(LMTransformerBilateralcoder, self).__init__()
+        super(LMTransformerSeq2Seq, self).__init__()
 
         self.src_vocab_size = src_vocab_size
         if tgt_vocab_size is None:
@@ -318,9 +339,12 @@ class LMTransformerBilateralcoder(nn.Module):
 
         self.dropout_rate = dropout_rate
 
+        self.pos_encoder = PositionalEncoding(d_model=self.d_model,
+                                              max_seq_len=self.max_seq_len, dropout_rate=dropout_rate)
+
         self.src_embedding = nn.Sequential(
             TSEmbedding(vocab_size=self.src_vocab_size, d_model=self.d_model),
-            #PositionalEncoding(d_model=self.d_model, max_seq_len=self.max_seq_len, dropout_rate=dropout_rate)
+            self.pos_encoder
         )
 
         self.encoder = TransformerEncoder(n_layers=self.n_encoder_layers,
@@ -329,7 +353,7 @@ class LMTransformerBilateralcoder(nn.Module):
 
         self.tgt_embedding = nn.Sequential(
             TSEmbedding(vocab_size=self.tgt_vocab_size, d_model=self.d_model),
-            #PositionalEncoding(d_model=self.d_model, max_seq_len=self.max_seq_len, dropout_rate=dropout_rate)
+            self.pos_encoder
         )
         self.decoder = TransformerDecoder(n_layers=self.n_decoder_layers,
                                           n_heads=self.n_mttn_heads, d_model=self.d_model,
@@ -344,25 +368,30 @@ class LMTransformerBilateralcoder(nn.Module):
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
 
-    def encode(self, src, src_mask):
-        x = self.src_embedding(src)
-        memory = self.encoder(x, mask=src_mask)
+    def encode(self, src, src_mask, src_key_padding_mask=None):
+        src = self.src_embedding(src)
+        memory = self.encoder(src, src_mask, src_key_padding_mask)
 
         return memory
 
-    def decode(self, memory, src_mask, tgt, tgt_mask):
-        y = self.tgt_embedding(tgt)
-        y = self.decoder(memory, src_mask, y, tgt_mask)
+    def decode(self, memory, tgt, memory_mask=None, tgt_mask=None,
+               memory_key_padding_mask=None, tgt_key_padding_mask=None):
+        tgt = self.tgt_embedding(tgt)
+        tgt = self.decoder(memory, tgt, memory_mask, tgt_mask, memory_key_padding_mask, tgt_key_padding_mask)
 
-        return y
+        return tgt
 
-    def forward(self, src, tgt, src_mask, tgt_mask, final_proj=True):
-        memory = self.encode(src, src_mask)
-        y = self.decode(memory, src_mask, tgt, tgt_mask)
+    def forward(self, src: Tensor, tgt: Tensor,
+                src_mask: Optional[Tensor] = None, tgt_mask: Optional[Tensor] = None,
+                memory_mask: Optional[Tensor] = None, src_key_padding_mask: Optional[Tensor] = None,
+                tgt_key_padding_mask: Optional[Tensor] = None, memory_key_padding_mask: Optional[Tensor] = None,
+                final_proj: bool = True):
+        memory = self.encode(src, src_mask, src_key_padding_mask)
+        tgt = self.decode(memory, tgt, memory_mask, tgt_mask, memory_key_padding_mask, tgt_key_padding_mask)
         if final_proj:
-            y = self.generator(y)
+            tgt = self.generator(tgt)
 
-        return y
+        return tgt
 
 
 

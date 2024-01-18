@@ -20,8 +20,8 @@ class TSUtils:
         src_mask = torch.ones(src_len, device=src.device).to(torch.bool)
         tgt_mask = cls.make_causal_mask(tgt)
 
-        src_padding_mask = (src == pad_idx)
-        tgt_padding_mask = (tgt == pad_idx)
+        src_padding_mask = (src != pad_idx)
+        tgt_padding_mask = (tgt != pad_idx)
 
         return src_mask, tgt_mask, src_padding_mask, tgt_padding_mask
 
