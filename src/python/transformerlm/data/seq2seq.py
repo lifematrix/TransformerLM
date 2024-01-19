@@ -3,6 +3,7 @@
 Define dataset and data provider class for seq2seq models.
 """
 
+import logging
 from typing import List, Optional, Callable
 from functools import partial
 
@@ -77,7 +78,7 @@ class Seq2SeqDataMulti30k:
                 for k, url in self.DATASET_URLS.items()
             ]
         )
-        print(url_pairs)
+        logging.debug(url_pairs)
 
         fname_pairs = OrderedDict(
             [
@@ -88,7 +89,7 @@ class Seq2SeqDataMulti30k:
                 for k, urls in url_pairs.items()
             ]
         )
-        print(fname_pairs)
+        logging.debug(fname_pairs)
 
         return fname_pairs
 
@@ -98,7 +99,7 @@ class Seq2SeqDataMulti30k:
         def read_pair(fname_pair):
             with open(fname_pair[0], encoding="utf8") as f0, open(fname_pair[1], encoding="utf8") as f1:
                 lines = [(line0.rstrip("\n"), line1.rstrip("\n")) for line0, line1 in zip(f0, f1)]
-            print(f"read {fname_pair} The number of lines: {len(lines)}")
+            logging.info(f"read {fname_pair} The number of lines: {len(lines)}")
 
             return {
                 self.src_lan: [x[0] for x in lines],

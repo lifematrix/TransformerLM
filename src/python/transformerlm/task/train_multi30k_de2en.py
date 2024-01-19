@@ -15,9 +15,9 @@ from collections import OrderedDict
 
 from ..data import Seq2SeqDataMulti30k
 from ..model import TSUtils, LMTransformerBilateralcoder
-from ..utils import CommUtils
+from ..utils import LogUtils, CommUtils
 from . import Translator
-
+import logging
 
 
 class Trainer:
@@ -170,12 +170,13 @@ def parse_args():
 
     inner_test_p = subparsers.add_parser('test_train', help='Test the training function for debugging')
     args = parser.parse_args()
-    print(args)
+    logging.info(args)
 
     return args
 
 
 if __name__ == "__main__":
+    LogUtils.initlog()
     args = parse_args()
     if args.task == "test_train":
         inner_test()

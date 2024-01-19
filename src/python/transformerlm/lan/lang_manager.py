@@ -2,12 +2,14 @@
 
 from typing import Mapping, Any, List
 from collections import OrderedDict
+import logging
 
 import torch
 from torch import nn
 from torchtext.data.utils import get_tokenizer
 from torch.nn.utils.rnn import pad_sequence
 from . import Vocabulary
+
 
 
 _tokenizers = OrderedDict(**{
@@ -45,6 +47,7 @@ class LanguageSetManager:
         for vocab in vocabs.values():
             vocab.default_index = self.UNK_IDX
 
+        logging.info("Build vocabs: %s" % ' '.join(["%s:%s" % (k, len(v)) for k, v in vocabs.items()]))
 
         self.vocabs = vocabs
 
