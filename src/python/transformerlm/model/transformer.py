@@ -173,7 +173,7 @@ class TSEmbedding(nn.Module):
         self.d_model = d_model
 
     def forward(self, x):
-        x = self.lut(x) / math.sqrt(self.d_model)
+        x = self.lut(x) * math.sqrt(self.d_model)
         return x
 
 class PositionalEncoding(nn.Module):
@@ -320,7 +320,7 @@ class LMTransformerBilateralcoder(nn.Module):
 
         self.src_embedding = nn.Sequential(
             TSEmbedding(vocab_size=self.src_vocab_size, d_model=self.d_model),
-            #PositionalEncoding(d_model=self.d_model, max_seq_len=self.max_seq_len, dropout_rate=dropout_rate)
+            PositionalEncoding(d_model=self.d_model, max_seq_len=self.max_seq_len, dropout_rate=dropout_rate)
         )
 
         self.encoder = TransformerEncoder(n_layers=self.n_encoder_layers,
@@ -329,7 +329,7 @@ class LMTransformerBilateralcoder(nn.Module):
 
         self.tgt_embedding = nn.Sequential(
             TSEmbedding(vocab_size=self.tgt_vocab_size, d_model=self.d_model),
-            #PositionalEncoding(d_model=self.d_model, max_seq_len=self.max_seq_len, dropout_rate=dropout_rate)
+            PositionalEncoding(d_model=self.d_model, max_seq_len=self.max_seq_len, dropout_rate=dropout_rate)
         )
         self.decoder = TransformerDecoder(n_layers=self.n_decoder_layers,
                                           n_heads=self.n_mttn_heads, d_model=self.d_model,

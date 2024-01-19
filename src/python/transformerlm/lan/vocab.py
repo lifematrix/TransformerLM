@@ -87,4 +87,20 @@ class Vocabulary:
 
         return new_voc
 
+    def state_dict(self):
+        return {
+            "voc_list": self.voc_list,
+            "idx_map": self.idx_map,
+            "_default_index": self._default_index
+        }
+
+    def load_state_dict(self, state_dict):
+        self.voc_list = state_dict['voc_list']
+        self.idx_map = state_dict['idx_map']
+        self._default_index = state_dict['_default_index']
+
+        return self
+
+
+
 

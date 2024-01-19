@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 
 from typing import Mapping, Any, List
+
+import torch
 from torch import nn
 from torchtext.data.utils import get_tokenizer
 from torch.nn.utils.rnn import pad_sequence
@@ -13,7 +15,7 @@ _tokenizers = {
 }
 
 
-class LanguageSetManager(nn.Module):
+class LanguageSetManager:
     """Manage the set of multiple languages."""
 
     UNK_IDX, PAD_IDX, BOS_IDX, EOS_IDX = 0, 1, 2, 3
@@ -34,33 +36,37 @@ class LanguageSetManager(nn.Module):
         vocabs = {
             lan: Vocabulary.create_from(map(lambda x: self.tokenizers[lan](x), lans_text[lan]),
                                         specials=special_tokens)
-            for lan in self.lans
+            for lan in lans_text.keys()
         }
 
         for vocab in vocabs.values():
             vocab.default_index = self.UNK_IDX
 
-        return vocabs
+        self.vocabs = vocabs
 
     def state_dict(self, *args, **kwargs):
-        d = super(LanguageSetManager, self).state_dict()
-        d["vacabs"] = self.vocabs
-
-        return d
+        return {'vocabs': {k: v.state_dict() for k, v in self.vocabs.items()}}
 
     def load_state_dict(self, state_dict: dict, strict: bool = True, assign: bool = False):
 
-        self.vocabs = state_dict.pop("vocabs", dict())
-        super(LanguageSetManager, self).load_state_dict(state_dict, strict, assign)
+        vocabs = state_dict.pop("vocabs", dict())
+        for k, v in vocabs.items():
+            self.vocabs.update({k: Vocabulary()})
+            self.vocabs[k].load_state_dict(v)
+
+        return self
 
     def add_head_tail(self, token_ids: List[int]):
         return [self.BOS_IDX] + token_ids + [self.EOS_IDX]
 
-    def text2id(self, lan: str, text: str, bos_eos=True):
+    def text2id(self, lan: str, text: str, bos_eos=True, to_tensor=False):
         tokens = self.tokenizers[lan](text)
         token_ids = self.vocabs[lan][tokens]
         if bos_eos:
-            self.add_head_tail(token_ids)
+            token_ids = self.add_head_tail(token_ids)
+
+        if to_tensor:
+            token_ids = torch.tensor(token_ids, dtype=torch.int64)
 
         return token_ids
 

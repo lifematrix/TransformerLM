@@ -52,18 +52,17 @@ class Seq2SeqDataMulti30k:
         ("test", "test_2016_flickr.[lan].gz")
     ])
 
-    def __init__(self, src_lan: str, tgt_lan: str):
+    def __init__(self, src_lan: str, tgt_lan: str, lanmgr=None):
         self.src_lan = src_lan
         self.tgt_lan = tgt_lan
         self.lans = (self.src_lan, self.tgt_lan)
         self.data = self.read_data()
-
-        self.lanmgr = self.create_lanmgr()
+        self.lanmgr = self.create_lanmgr() if lanmgr is None else lanmgr
 
         self.datasets = {
             k: Seq2SeqDataset(src_list=v[self.src_lan], tgt_list=v[self.tgt_lan],
-                              src_transform=partial(self.preprocess, lan=self.src_lan),
-                              tgt_transform=partial(self.preprocess, lan=self.tgt_lan))
+                              src_transform=partial(self.lanmgr.text2id, lan=self.src_lan, to_tensor=True),
+                              tgt_transform=partial(self.lanmgr.text2id, lan=self.tgt_lan, to_tensor=True))
             for k, v in self.data.items()
         }
 
@@ -131,8 +130,8 @@ def test_main():
     print(d.lanmgr.vocabs['en']["<eos>"])
     print(d.lanmgr.vocabs['en'][100])
     print({lan: len(d.lanmgr.vocabs[lan]) for lan in d.lans})
-    print(d.preprocess("de", "Drei Leute sitzen an einem Picknicktisch vor einem Gebäude, das wie der Union Jack bemalt ist."))
-    print(d.preprocess("en", "Three people sit at a picnic table outside of a building painted like a union jack."))
+    print(d.lanmgr.text2id("de", "Drei Leute sitzen an einem Picknicktisch vor einem Gebäude, das wie der Union Jack bemalt ist."))
+    print(d.lanmgr.text2id("en", "Three people sit at a picnic table outside of a building painted like a union jack."))
     # for k, ds in d.datasets.items():
     #     print(k)
     #     for i, item in enumerate(ds):
