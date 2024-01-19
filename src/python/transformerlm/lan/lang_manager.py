@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from typing import Mapping, Any, List
+from collections import OrderedDict
 
 import torch
 from torch import nn
@@ -9,10 +10,12 @@ from torch.nn.utils.rnn import pad_sequence
 from . import Vocabulary
 
 
-_tokenizers = {
+_tokenizers = OrderedDict(**{
     'de': get_tokenizer('spacy', language='de_core_news_sm'),
-    'en': get_tokenizer('spacy', language='en_core_web_sm')
-}
+    'en': get_tokenizer('spacy', language='en_core_web_sm'),
+    'fr': get_tokenizer('spacy', language='fr_core_news_sm'),
+
+})
 
 
 class LanguageSetManager:
@@ -42,14 +45,15 @@ class LanguageSetManager:
         for vocab in vocabs.values():
             vocab.default_index = self.UNK_IDX
 
+
         self.vocabs = vocabs
 
-    def state_dict(self, *args, **kwargs):
-        return {'vocabs': {k: v.state_dict() for k, v in self.vocabs.items()}}
+    def state_dict(self):
+        return OrderedDict({'vocabs': {k: v.state_dict() for k, v in self.vocabs.items()}})
 
     def load_state_dict(self, state_dict: dict, strict: bool = True, assign: bool = False):
 
-        vocabs = state_dict.pop("vocabs", dict())
+        vocabs = state_dict["vocabs"]
         for k, v in vocabs.items():
             self.vocabs.update({k: Vocabulary()})
             self.vocabs[k].load_state_dict(v)

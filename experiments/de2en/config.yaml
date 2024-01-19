@@ -3,7 +3,7 @@
 torch_seed: 12345
 train:
     batch_size: 128
-    n_epochs: 2
+    n_epochs: 10
     device: "cuda:0"
 model:
     n_encoder_layers: 3

@@ -71,8 +71,10 @@ class Translator:
 
 
 if __name__ == "__main__":
-    state_dict = torch.load("checkpoints/20240118.pt")
+    state_dict = torch.load("checkpoints/seq2seq-transformer_20240119-154234_final.pt")
     print(state_dict.keys())
 
     translator = Translator.create_from_state(state_dict).to("cuda:0")
-    print(translator.translate("Zwei Autos fahren auf einer Rennstrecke."))
+    #print(translator.translate("Zwei Autos fahren auf einer Rennstrecke."))
+    print(translator.translate("Une fille au bord d'une plage avec une montagne au loin."))
+

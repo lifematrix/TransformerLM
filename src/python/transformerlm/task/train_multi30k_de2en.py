@@ -28,7 +28,7 @@ class Trainer:
         torch.manual_seed(self.cfg.torch_seed)
 
         self.ckpt_file = ckpt_file
-        self.dp = Seq2SeqDataMulti30k(src_lan="de", tgt_lan="en", lanmgr=lanmgr)  # data provider
+        self.dp = Seq2SeqDataMulti30k(src_lan="fr", tgt_lan="en", lanmgr=lanmgr)  # data provider
         self.lanmgr = self.dp.lanmgr if lanmgr is None else lanmgr
 
         self.model = LMTransformerBilateralcoder(src_vocab_size=self.lanmgr.vocabs[self.dp.src_lan].size,
@@ -60,8 +60,11 @@ class Trainer:
         self.save_checkpoint("final")
 
     def save_checkpoint(self, num, extra_state=None):
+        if self.ckpt_file is None or len(self.ckpt_file) == 0:
+            print("The checkpoint file is not specified!")
+            return
 
-        fname, ext = os.path.split(self.ckpt_file)
+        fname, ext = os.path.splitext(self.ckpt_file)
         cur_ckpt_fname = f"{fname}_{num}{ext}"
 
         state_dict = OrderedDict({
@@ -147,40 +150,34 @@ def inner_test():
                             model=trainer.model, lanmgr=trainer.lanmgr).to(CF.train.device)
     print(translator.translate("Zwei Autos fahren auf einer Rennstrecke."))
 
-def read_yaml_config(file_path):
-    with open(file_path, 'r') as file:
-        try:
-            config = yaml.safe_load(file)
-            return config
-        except yaml.YAMLError as exc:
-            print(exc)
-            return None
-
 def train(args):
-    config = CommUtils.load_yaml_config(args.config_file)
-    trainer = Trainer(config, ckpt_file=args.ckpt_file)
+    config, _ = CommUtils.load_yaml_config(args.config_file)
+    trainer = Trainer(dotteddict(config), ckpt_file=args.ckpt_file)
     trainer.train()
 
 
-def parse_argument():
+def parse_args():
     parser = argparse.ArgumentParser(
         description="Training seq2seq Transformer model",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     subparsers = parser.add_subparsers(help='task', dest="task")
     train_p = subparsers.add_parser('train', help='Train the model')
-    train_p.add_argument('--cfg', help="The configuration file (YAML format)", required=True, type=str, metavar="config_file")
-    train_p.add_argument('--ckpt', help='The path name of checkpoint to save during training', required=False, metavar="ckpt_file")
+    train_p.add_argument('--config', help="The configuration file (YAML format)",
+                         required=True, type=str, dest="config_file")
+    train_p.add_argument('--ckpt', help='The path name of checkpoint to save during training',
+                         required=False, dest="ckpt_file")
 
-    inner_test_p = subparsers.add_parser('inner_test', help='Test the training function for debugging')
+    inner_test_p = subparsers.add_parser('test_train', help='Test the training function for debugging')
     args = parser.parse_args()
     print(args)
 
     return args
 
+
 if __name__ == "__main__":
-    args = parse_argument()
-    if args.task == "inner_test":
+    args = parse_args()
+    if args.task == "test_train":
         inner_test()
     elif args.task == "train":
         train(args)
