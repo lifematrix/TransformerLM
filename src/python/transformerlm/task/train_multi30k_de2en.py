@@ -2,6 +2,7 @@
 """
 The program to train q seq2seq model based on Transformer to translate [de]utsch to [en]glish.
 """
+import os.path
 
 import numpy as np
 import torch
@@ -9,36 +10,24 @@ from torch.utils.data import DataLoader
 from dotteddict import dotteddict
 import yaml
 from tqdm import tqdm
+import argparse
+from collections import OrderedDict
 
 from ..data import Seq2SeqDataMulti30k
 from ..model import TSUtils, LMTransformerBilateralcoder
+from ..utils import CommUtils
 from . import Translator
 
 
-config_yaml = """
-    torch_seed: 12345
-    train:
-        batch_size: 128 
-        n_epochs: 10 
-        device: "cuda:0"
-    model:
-        n_encoder_layers: 3
-        n_decoder_layers: 3  
-        dropout: 0.1
-        d_model: 512
-        d_ff: 512 
-"""
-
-CF = dotteddict(yaml.load(config_yaml, yaml.SafeLoader))
-
 
 class Trainer:
-    def __init__(self, cfg: dotteddict, lanmgr=None):
+    def __init__(self, cfg: dotteddict, lanmgr=None, ckpt_file=None):
         self.cfg = cfg
 
         print(f"Set torch manual seed {self.cfg.torch_seed}")
         torch.manual_seed(self.cfg.torch_seed)
 
+        self.ckpt_file = ckpt_file
         self.dp = Seq2SeqDataMulti30k(src_lan="de", tgt_lan="en", lanmgr=lanmgr)  # data provider
         self.lanmgr = self.dp.lanmgr if lanmgr is None else lanmgr
 
@@ -65,18 +54,31 @@ class Trainer:
             train_loss = self.train_epoch(epoch)
             val_loss = self.eval_epoch(epoch)
             print(f"Epoch {epoch} | train loss: {train_loss:.5f}, val loss: {val_loss:.5f}")
+            self.save_checkpoint(epoch, {'train_loss': train_loss, 'val_loss': val_loss})
 
-    def save_checkpoint(self):
-        ckpt_fname = "checkpoints/20240118.pt"
-        torch.save({
+
+        self.save_checkpoint("final")
+
+    def save_checkpoint(self, num, extra_state=None):
+
+        fname, ext = os.path.split(self.ckpt_file)
+        cur_ckpt_fname = f"{fname}_{num}{ext}"
+
+        state_dict = OrderedDict({
             'model_config': self.cfg.model,
             'model': self.model.state_dict(),
             'lanmgr': self.lanmgr.state_dict(),
-            'lans': self.dp.lans
-        },
-        ckpt_fname)
+            'lans': self.dp.lans,
+            'num': num,
+            'datetime': CommUtils.now_str()
+        })
 
-        print(f"save checkpoints to {ckpt_fname} OK")
+        if extra_state is not None:
+            state_dict.update(extra_state)
+
+        torch.save(state_dict, cur_ckpt_fname)
+
+        print(f"save checkpoints to {cur_ckpt_fname} OK")
 
     def train_epoch(self, epoch):
 
@@ -122,10 +124,66 @@ class Trainer:
         return TSUtils.mean(losses)
 
 
-if __name__ == "__main__":
-    trainer = Trainer(CF)
+def inner_test():
+    config_yaml = """
+        torch_seed: 12345
+        train:
+            batch_size: 128 
+            n_epochs: 10 
+            device: "cuda:0"
+        model:
+            n_encoder_layers: 3
+            n_decoder_layers: 3  
+            dropout: 0.1
+            d_model: 512
+            d_ff: 512 
+    """
+
+    CF = dotteddict(yaml.load(config_yaml, yaml.SafeLoader))
+
+    trainer = Trainer(CF, ckpt_file="checkpoints/20240118.pt")
     trainer.train()
-    trainer.save_checkpoint()
     translator = Translator(src_lan=trainer.dp.src_lan, tgt_lan=trainer.dp.tgt_lan,
                             model=trainer.model, lanmgr=trainer.lanmgr).to(CF.train.device)
     print(translator.translate("Zwei Autos fahren auf einer Rennstrecke."))
+
+def read_yaml_config(file_path):
+    with open(file_path, 'r') as file:
+        try:
+            config = yaml.safe_load(file)
+            return config
+        except yaml.YAMLError as exc:
+            print(exc)
+            return None
+
+def train(args):
+    config = CommUtils.load_yaml_config(args.config_file)
+    trainer = Trainer(config, ckpt_file=args.ckpt_file)
+    trainer.train()
+
+
+def parse_argument():
+    parser = argparse.ArgumentParser(
+        description="Training seq2seq Transformer model",
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    subparsers = parser.add_subparsers(help='task', dest="task")
+    train_p = subparsers.add_parser('train', help='Train the model')
+    train_p.add_argument('--cfg', help="The configuration file (YAML format)", required=True, type=str, metavar="config_file")
+    train_p.add_argument('--ckpt', help='The path name of checkpoint to save during training', required=False, metavar="ckpt_file")
+
+    inner_test_p = subparsers.add_parser('inner_test', help='Test the training function for debugging')
+    args = parser.parse_args()
+    print(args)
+
+    return args
+
+if __name__ == "__main__":
+    args = parse_argument()
+    if args.task == "inner_test":
+        inner_test()
+    elif args.task == "train":
+        train(args)
+
+
+
