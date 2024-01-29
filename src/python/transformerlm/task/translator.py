@@ -26,14 +26,20 @@ class Translator:
 
         memory = self.model.encode(src, src_mask)
         ys = torch.ones(1, 1, dtype=torch.int64).fill_(self.lanmgr.BOS_IDX).to(self.device)
+        output_prev = None
         for i in range(max_len-1):
             tgt_mask = TSUtils.make_causal_mask(ys)
             output = self.model.decode(memory, src_mask, ys, tgt_mask)
+            # print("output.shape", output.shape)
+            # if output_prev is not None:
+            #     print(i, torch.all(output[:, :-1] == output_prev))
+
             logits = self.model.generator(output[:, -1])
             next_pred = torch.argmax(logits, dim=-1, keepdim=True)
             ys = torch.cat([ys, next_pred], dim=1)
             if next_pred[0, 0].item() == self.lanmgr.EOS_IDX:
                 break
+            output_prev = output
 
         return ys[0]
 
@@ -71,7 +77,7 @@ class Translator:
 
 
 if __name__ == "__main__":
-    state_dict = torch.load("checkpoints/seq2seq-transformer_20240119-154234_final.pt")
+    state_dict = torch.load("checkpoints/seq2seq-transformer_20240119-155222_final.pt")
     print(state_dict.keys())
 
     translator = Translator.create_from_state(state_dict).to("cuda:0")

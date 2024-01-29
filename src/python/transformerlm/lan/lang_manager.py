@@ -47,7 +47,7 @@ class LanguageSetManager:
         for vocab in vocabs.values():
             vocab.default_index = self.UNK_IDX
 
-        logging.info("Build vocabs: %s" % ' '.join(["%s:%s" % (k, len(v)) for k, v in vocabs.items()]))
+        logging.info("Build vocabs: %s" % ' '.join(["%s: %s" % (k, len(v)) for k, v in vocabs.items()]))
 
         self.vocabs = vocabs
 
