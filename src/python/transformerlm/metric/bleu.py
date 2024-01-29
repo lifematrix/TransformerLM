@@ -19,6 +19,9 @@ class BLEUScore:
         self.precisions = None
         self.weights = None
         self.sentence_score = None
+    def __str__(self):
+        return (f"BLEU Score: {self.sentence_score} ( Precision: {self.precisions} | Counts: {self.counts} Matches: {self.matches} |"
+                f" BP: {self.BP} Effective Reference Length: {self.refs_len} Hypothesis Lenght: {self.hyp_len} | max_ngram: f{self.max_ngram}")
 
 
 class BLEU:
@@ -127,3 +130,47 @@ class BLEU:
 
         return bs
 
+def test_sentence_score():
+    example_1 = {
+        "Candidate":
+            [
+                "It is a guide to action which ensures that the military always obeys the commands of the party.",
+                "It is to insure the troops forever hearing the activity guidebook that party direct."
+            ],
+        "Reference":
+            ["It is a guide to action that ensures that the military will forever heed Party commands.",
+             "It is the guiding principle which guarantees the military forces always being under the command of the Party."
+             ]
+    }
+    example_2 = {
+        "Candidate":
+            [
+                "the the the the the the the."
+            ],
+        "Reference":
+            [
+                "The cat is on the mat.",
+                "There is a cat on the mat."
+            ]
+    }
+
+    example_3 = {
+        "Candidate":
+            [
+                "of the"
+            ],
+        "Reference":
+            [
+                "It is a guide to action that ensures that the military will forever heed Party commands.",
+                "It is the guiding principle which guarantees the military forces always being under the command of the Party.",
+                "It is the practical guide for the army always to heed the directions of the party"
+            ]
+    }
+
+    blue = BLEU()
+    print(blue.sentence_score(example_1['Candidate'], example_1['Reference'], max_ngrams=4))
+    print(blue.sentence_score(example_2['Candidate'], example_2['Reference'], max_ngrams=4))
+
+
+if __name__ == "__main__":
+    test_sentence_score()
