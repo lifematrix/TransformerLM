@@ -22,11 +22,29 @@ class BLEUScore:
         self.sentence_score = None
 
     def __str__(self):
-        return (f"BLEU Score: {self.sentence_score} (Precisions: {' / '.join(['%.4f'%x for x in self.precisions])} | "
-                f"Counts: {self.counts}, Matches: {self.matches} |"
-                f" BP: {self.BP}, Effective Reference Length: {self.effective_ref_len}, Hypothesis Length: {self.hyp_len},"
-                f" References Length: {self.refs_len} | Max ngrams: {self.max_ngram}, "
-                f" Weights: {self.weights})")
+        return (f"BLEU Score: {self.sentence_score} (Precisions: {self.lst2str(self.precisions)}) |"
+                f" Counts: {self.lst2str(self.counts)}, Matches: {self.lst2str(self.matches)} |"
+                f" BP: {self.BP:.5f}, Effective Reference Length: {self.lst2str(self.effective_ref_len)}, Hypothesis Length: {self.hyp_len},"
+                f" References Length: {self.lst2str(self.refs_len)} | Max ngrams: {self.max_ngram}, "
+                f" Weights: {self.lst2str(self.weights)})")
+
+    def lst2str(self, lst, n_decimals=4):
+        if lst is None:
+            return ""
+
+        if isinstance(lst, list):
+            if len(lst) == 0:
+                return ""
+
+            if isinstance(lst[0], str):
+                return " / ".join(lst)
+
+            if isinstance(lst[0], float):
+                return " / ".join([f"{x:.{n_decimals}f}" for x in lst])
+
+            return " / ".join([str(x) for x in lst] )
+
+        return f"{lst}"
 
 
 class BLEU:
@@ -174,9 +192,9 @@ def test_sentence_score():
     }
 
     blue = BLEU()
-    # print(blue.sentence_score(example_1['Candidate'][0], example_1['Reference'], max_ngrams=4))
-    # print(blue.sentence_score(example_1['Candidate'][1], example_1['Reference'], max_ngrams=4))
-    # print(blue.sentence_score(example_2['Candidate'][0], example_2['Reference'], max_ngrams=4))
+    print(blue.sentence_score(example_1['Candidate'][0], example_1['Reference'], max_ngrams=4))
+    print(blue.sentence_score(example_1['Candidate'][1], example_1['Reference'], max_ngrams=4))
+    print(blue.sentence_score(example_2['Candidate'][0], example_2['Reference'], max_ngrams=4))
     print(blue.sentence_score(example_3['Candidate'][0], example_3['Reference'], max_ngrams=4))
 
 
