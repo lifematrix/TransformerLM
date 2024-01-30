@@ -16,6 +16,7 @@ from collections import OrderedDict
 from ..data import Seq2SeqDataMulti30k
 from ..model import TSUtils, LMTransformerBilateralcoder
 from ..utils import LogUtils, CommUtils
+from ..metric import BLEU
 from . import Translator
 import logging
 
@@ -28,7 +29,7 @@ class Trainer:
         torch.manual_seed(self.cfg.torch_seed)
 
         self.ckpt_file = ckpt_file
-        self.dp = Seq2SeqDataMulti30k(src_lan="fr", tgt_lan="en", lanmgr=lanmgr)  # data provider
+        self.dp = Seq2SeqDataMulti30k(src_lan="de", tgt_lan="en", lanmgr=lanmgr)  # data provider
         self.lanmgr = self.dp.lanmgr if lanmgr is None else lanmgr
 
         self.model = LMTransformerBilateralcoder(src_vocab_size=self.lanmgr.vocabs[self.dp.src_lan].size,
@@ -42,11 +43,15 @@ class Trainer:
 
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.0001, betas=(0.9, 0.98), eps=1e-9)
         self.loss_fn = torch.nn.CrossEntropyLoss(ignore_index=self.lanmgr.PAD_IDX)
+
         self.train_dataloader = DataLoader(self.dp.datasets['train'], shuffle=True,
                                            batch_size=self.cfg.train.batch_size, collate_fn=self.lanmgr.pad_batch)
 
         self.val_dataloader = DataLoader(self.dp.datasets['val'], shuffle=False,
                                          batch_size=self.cfg.train.batch_size, collate_fn=self.lanmgr.pad_batch)
+
+        self.translator = Translator(src_lan=self.dp.src_lan, tgt_lan=self.dp.tgt_lan,
+                                     model=self.model, lanmgr=self.lanmgr).to(self.cfg.train.device)
 
     def train(self):
         self.model.train()
@@ -55,7 +60,6 @@ class Trainer:
             val_loss = self.eval_epoch(epoch)
             print(f"Epoch {epoch} | train loss: {train_loss:.5f}, val loss: {val_loss:.5f}")
             self.save_checkpoint(epoch, {'train_loss': train_loss, 'val_loss': val_loss})
-
 
         self.save_checkpoint("final")
 
@@ -108,8 +112,6 @@ class Trainer:
         return TSUtils.mean(losses)
 
     def eval_epoch(self, epoch=None):
-
-        self.model.eval()
         losses = []
 
         for i, (src, tgt_orig) in enumerate(self.val_dataloader):
@@ -132,7 +134,7 @@ def inner_test():
         torch_seed: 12345
         train:
             batch_size: 128 
-            n_epochs: 10 
+            n_epochs: 15 
             device: "cuda:0"
         model:
             n_encoder_layers: 3
@@ -149,6 +151,7 @@ def inner_test():
     translator = Translator(src_lan=trainer.dp.src_lan, tgt_lan=trainer.dp.tgt_lan,
                             model=trainer.model, lanmgr=trainer.lanmgr).to(CF.train.device)
     print(translator.translate("Zwei Autos fahren auf einer Rennstrecke."))
+
 
 def train(args):
     config, _ = CommUtils.load_yaml_config(args.config_file)

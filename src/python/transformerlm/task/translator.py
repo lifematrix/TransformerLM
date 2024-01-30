@@ -3,6 +3,7 @@
 import torch
 from ..lan import LanguageSetManager
 from ..model import TSUtils, LMTransformerBilateralcoder
+import re
 
 
 class Translator:
@@ -43,14 +44,25 @@ class Translator:
 
         return ys[0]
 
-    def translate(self, src: str):
+
+    def strip_specials_tokens(self, text: str):
+        text = text.replace(self.lanmgr.PAD_TKN, "")
+        text = text.replace(self.lanmgr.BOS_TKN, "")
+        text = text.replace(self.lanmgr.EOS_TKN, "")
+        text = re.sub("\s+.\s+$", ".", text)
+        text = re.sub("^\s+", "", text)
+
+        return text
+
+
+
+    def translate(self, src):
         self.model.eval()
         src = self.lanmgr.text2id(self.src_lan, src, to_tensor=True)   # converted into token ids.
         src = src[None, ...]  # add axis 0 as batch dim
         src_mask = torch.ones(src.shape[1]).to(torch.bool)
         pred_tokens = self.greedy_decode(src, src_mask, max_len=200)
         pred_tokens = list(pred_tokens.cpu().numpy())
-
         pred_str = " ".join(self.lanmgr.vocabs[self.tgt_lan][pred_tokens])
 
         return pred_str
