@@ -27,23 +27,54 @@ class Translator:
 
         memory = self.model.encode(src, src_mask)
         ys = torch.ones(1, 1, dtype=torch.int64).fill_(self.lanmgr.BOS_IDX).to(self.device)
-        output_prev = None
         for i in range(max_len-1):
             tgt_mask = TSUtils.make_causal_mask(ys)
             output = self.model.decode(memory, src_mask, ys, tgt_mask)
-            # print("output.shape", output.shape)
-            # if output_prev is not None:
-            #     print(i, torch.all(output[:, :-1] == output_prev))
 
             logits = self.model.generator(output[:, -1])
             next_pred = torch.argmax(logits, dim=-1, keepdim=True)
             ys = torch.cat([ys, next_pred], dim=1)
             if next_pred[0, 0].item() == self.lanmgr.EOS_IDX:
                 break
-            output_prev = output
 
         return ys[0]
 
+    def beam_search(self, src, src_mask, max_len, beam_size=5):
+        def topk_indices(d, k):
+            top_vals, top_indices_flat = torch.topk(d.flatten(), k)
+            L = d.size(1)
+            top_indices = torch.stack((top_indices_flat // L, top_indices_flat % L), dim=1)
+            top_vals = top_vals.unsqueeze(1)
+            return top_vals, top_indices
+
+        src = src.to(self.device)
+        src_mask = src_mask.to(self.device)
+
+        memory = self.model.encode(src, src_mask)
+        ys = torch.ones(1, 1, dtype=torch.int64).fill_(self.lanmgr.BOS_IDX).to(self.device)
+        cum_logprobs = torch.zeros_like(ys, dtype=torch.get_default_dtype())   # cumulative logprobs
+
+        for i in range(max_len-1):
+            if ys.size(0) != src.size(0):
+                src = src.repeat((ys.size(0), 1))
+                memory = memory.repeat((ys.size(0), 1, 1))
+
+            tgt_mask = TSUtils.make_causal_mask(ys)
+            output = self.model.decode(memory, src_mask, ys, tgt_mask)
+            logits = self.model.generator(output[:, -1])
+            logprobs = torch.log_softmax(logits, dim=1)
+            logprobs_all = cum_logprobs + logprobs
+            cum_logprobs, top_indices = topk_indices(logprobs_all, beam_size)
+            next_yss = []
+            for j in range(beam_size):
+                b1, b2 = top_indices[j]
+                next_token = torch.tensor([b2], device=ys.device)
+                next_seq = torch.cat((ys[b1], next_token))
+                next_yss.append(next_seq)
+
+            ys = torch.stack(next_yss, dim=0)
+
+        return ys
 
     def strip_specials_tokens(self, text: str):
         text = text.replace(self.lanmgr.PAD_TKN, "")
@@ -66,7 +97,19 @@ class Translator:
         pred_str = " ".join(self.lanmgr.vocabs[self.tgt_lan][pred_tokens])
 
         return pred_str
+    def translate_beamsearch(self, src):
+        self.model.eval()
+        src = self.lanmgr.text2id(self.src_lan, src, to_tensor=True)   # converted into token ids.
+        src = src[None, ...]  # add axis 0 as batch dim
+        src_mask = torch.ones(src.shape[1]).to(torch.bool)
+        pred_tokens_topn = self.beam_search(src, src_mask, max_len=50)
 
+        pred_str = []
+        for i in range(pred_tokens_topn.size(0)):
+            pred_tokens = list(pred_tokens_topn[i].cpu().numpy())
+            pred_str.append(" ".join(self.lanmgr.vocabs[self.tgt_lan][pred_tokens]))
+
+        return pred_str
 
     @classmethod
     def create_from_state(cls, state_dict):
@@ -89,10 +132,10 @@ class Translator:
 
 
 if __name__ == "__main__":
-    state_dict = torch.load("checkpoints/seq2seq-transformer_20240119-155222_final.pt")
-    print(state_dict.keys())
+    state_dict = torch.load("checkpoints/20240118_final.pt")
 
     translator = Translator.create_from_state(state_dict).to("cuda:0")
-    #print(translator.translate("Zwei Autos fahren auf einer Rennstrecke."))
-    print(translator.translate("Une fille au bord d'une plage avec une montagne au loin."))
+    print("\n".join(translator.translate_beamsearch("Zwei Autos fahren auf einer Rennstrecke.")))
+    #print(translator.translate_beamsearch("Une fille au bord d'une plage avec une montagne au loin."))
+    #print(translator.translate("Une fille au bord d'une plage avec une montagne au loin."))
 
