@@ -1,0 +1,36 @@
+tensor([[-18.9915, -18.9608, -19.0157,  ..., -16.8152, -17.7577, -17.5329]],
+       device='cuda:0', grad_fn=<AddBackward0>)
+
+tensor([[-0.0357],
+        [-3.4520],
+        [-7.3440],
+        [-7.6155],
+        [-8.0724]], device='cuda:0', grad_fn=<UnsqueezeBackward0>)
+
+
+[
+tensor([ 2, 19], device='cuda:0'),
+tensor([  2, 430], device='cuda:0'),
+tensor([ 2, 66], device='cuda:0'),
+tensor([  2, 223], device='cuda:0'),
+tensor([ 2, 49], device='cuda:0')]
+
+tensor([[  0, 526],
+        [  1, 526],
+        [  0, 143],
+        [  0,  22],
+        [  0, 530]], device='cuda:0')
+
+2, 19, 526
+2, 430, 526
+2, 19, 143
+2, 19, 22
+2, 19, 530
+
+tensor([[  0, 526],
+        [  1, 526],
+        [  0, 143],
+        [  0,  22],
+        [  0, 530]], device='cuda:0')
+
+
