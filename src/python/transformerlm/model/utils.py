@@ -36,7 +36,7 @@ class TSUtils:
             table.add_row([name, list(parameter.shape), params])
             total_params += params
         print(table)
-        print(f"Total Trainable Params: {total_params}, or  {total_params/(1024*1024):.3f}M")
+        print(f"Total Trainable Params: {total_params}, or {total_params/(1024*1024):.3f} Millions")
         return total_params
 
     @classmethod

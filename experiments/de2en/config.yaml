@@ -1,0 +1,13 @@
+## Training config file
+
+torch_seed: 12345
+train:
+    batch_size: 128
+    n_epochs: 2
+    device: "cuda:0"
+model:
+    n_encoder_layers: 3
+    n_decoder_layers: 3
+    dropout: 0.1
+    d_model: 512
+    d_ff: 512
