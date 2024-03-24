@@ -3,8 +3,12 @@
 Implements the BPE (Byte-pair Encoding Algorithm)
    according to the paper "Neural Machine Translation of Rare Words with Subword Units" (Rico sennrich et al., 2016)
 """
+import os
 import io
-from collections import OrderedDict, defaultdict, Counter
+import argparse
+from collections import OrderedDict, defaultdict
+from tqdm import tqdm
+from ..utils import TimeU
 
 
 class VocabEntry:
@@ -24,7 +28,7 @@ class BPE:
         if isinstance(corpus_or_file, list):
             data = corpus_or_file
         else:
-            data = open(fname, "r", encoding="utf-8")
+            data = open(corpus_or_file, "r", encoding="utf-8")
 
         for i, line in enumerate(data):
             if 0 <= first_n <= i:
@@ -50,8 +54,8 @@ class BPE:
         else:
             with open(dict_or_file, "r", encoding="utf-8") as f:
                 for line in f:
-                    w, freq = f.strip().split()
-                    self.vocab[w].freq = freq
+                    w, freq = line.strip().split()
+                    self.vocab[w].freq = int(freq)
 
         self.init_vocab_units()
 
@@ -75,7 +79,7 @@ class BPE:
                 i += 1
 
     def learn(self, max_size=30000):
-        def get_stats(vocab):
+        def get_pairs_stat(vocab):
             pairs = defaultdict(int)
             for v in vocab.values():
                 for k, pair in enumerate(zip(v.units[:-1], v.units[1:])):
@@ -84,21 +88,33 @@ class BPE:
             return pairs
 
         self.subwords = OrderedDict()
-        self.add_alphabet()
+        with TimeU.trace_time("add alphabet"):
+            self.add_alphabet()
         n_rounds = max_size - len(self.subwords)
 
-        for i in range(n_rounds):
-            cur_pairs = get_stats(self.vocab)
+        for i in tqdm(range(n_rounds)):
+            with TimeU.trace_time("get_pairs_stat"):
+                cur_pairs = get_pairs_stat(self.vocab)
             if len(cur_pairs) == 0:
                 break
             best_pair = max(cur_pairs, key=cur_pairs.get)
             new_subword = "".join(best_pair)
             self.subwords[new_subword] = cur_pairs[best_pair]
-            self.merge_vocab(self.vocab, new_subword, best_pair)
-            print(f"{new_subword}, {best_pair}, {cur_pairs[best_pair]}")
+            with TimeU.trace_time("merge_vocab"):
+                self.merge_vocab(self.vocab, new_subword, best_pair)
+            print(f"\n{new_subword}, {best_pair}, {cur_pairs[best_pair]}")
 
+    def save(self, bpe_learn_fname):
+        with open(bpe_learn_fname, "w") as f:
+            f.write("%d\n" % len(self.vocab))
+            for k, v in self.vocab.items():
+                f.write("%s %s %s\n" % (k, v.freq, " ".join(v.units)))
 
-if __name__ == "__main__":
+            f.write("%d\n" % len(self.subwords))
+            for k, v in self.subwords.items():
+                f.write("%s %s\n" % (k, v))
+
+def test_main_simple():
     bpe = BPE()
     vocab = {'low': 5, 'lower': 2, 'newest': 6, 'widest': 3}
     #fname = "data/nlp/WMT-14_en-de/train.en"
@@ -106,4 +122,30 @@ if __name__ == "__main__":
     bpe.build_vocab_from_dict(vocab)
     bpe.learn()
 
+
+def test_main_vocab():
+    bpe = BPE()
+    vocab_file = "data/generated/WMT-14/vocab.en"
+    bpe_learn_file = "data/generated/WMT-14/bpe_learn_vocab.en"
+    bpe.build_vocab_from_dict(vocab_file)
+    bpe.learn(max_size=3000)
+    bpe.save(bpe_learn_file)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="BPE Learn")
+    args = parser.parse_args()
+
+    return args
+
+
+def main():
+    args = parse_args()
+
+
+if __name__ == "__main__":
+    if os.environ.get("INNER_TEST", "0") == "1":
+        test_main_vocab()
+    else:
+        main()
 

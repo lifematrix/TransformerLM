@@ -34,3 +34,10 @@ tensor([[  0, 526],
         [  0, 530]], device='cuda:0')
 
 
+
+word count:
+c++: 1m27sec
+python: 816971,  28sec
+rust: 1m23sec
+c: 816974, 1m9s
+
